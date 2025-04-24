@@ -85,7 +85,7 @@ async function loadWordList() {
   currentWordIndex = 0;
   
     document.fonts.ready.then(() => {
-      setupWord(words[currentWordIndex]);
+      setupWord(words[currentWordIndex]); onWordRead(words[currentWordIndex]);
     });
     
 }
@@ -95,7 +95,7 @@ function changeWord(direction) {
   currentWordIndex = (currentWordIndex + direction + words.length) % words.length;
   
     document.fonts.ready.then(() => {
-      setupWord(words[currentWordIndex]);
+      setupWord(words[currentWordIndex]); onWordRead(words[currentWordIndex]);
     });
     
 }
@@ -216,6 +216,14 @@ function roundRect(x, y, w, h, r, fill, stroke) {
   if (fill) ctx.fill();
   if (stroke) ctx.stroke();
 }
+
+
+function playWordAudio(word) {
+  const audio = new Audio(`audio/${word}.mp3`);
+  audio.play().catch(e => console.warn("Audio file missing for", word));
+}
+
+function onWordRead(word) { playWordAudio(word); }
 </script>
 
 <script src="https://cdn.webrtc-experiment.com/RecordRTC.js"></script>
