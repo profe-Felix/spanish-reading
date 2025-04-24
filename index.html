@@ -49,6 +49,7 @@ canvas {
   </select>
 
   <div id="controls">
+  <button id="playAudio">🔊 Play Audio</button>
     <button id="prevWord">⟵ Prev</button>
     <button id="nextWord">Next ⟶</button>
   </div>
@@ -85,7 +86,7 @@ async function loadWordList() {
   currentWordIndex = 0;
   
     document.fonts.ready.then(() => {
-      setupWord(words[currentWordIndex]); onWordRead(words[currentWordIndex]);
+      setupWord(words[currentWordIndex]);
     });
     
 }
@@ -95,7 +96,7 @@ function changeWord(direction) {
   currentWordIndex = (currentWordIndex + direction + words.length) % words.length;
   
     document.fonts.ready.then(() => {
-      setupWord(words[currentWordIndex]); onWordRead(words[currentWordIndex]);
+      setupWord(words[currentWordIndex]);
     });
     
 }
@@ -342,6 +343,11 @@ stopBtn.onclick = () => {
     stream.getTracks().forEach(t => t.stop());
   });
 };
+
+document.getElementById("playAudio").addEventListener("click", () => {
+  if (words.length) playWordAudio(words[currentWordIndex]);
+});
+
 </script>
 </body>
 
