@@ -87,6 +87,7 @@ async function loadWordList() {
   
     document.fonts.ready.then(() => {
       setupWord(words[currentWordIndex]);
+      document.getElementById("playAudio").disabled = false;
     });
     
 }
@@ -97,6 +98,7 @@ function changeWord(direction) {
   
     document.fonts.ready.then(() => {
       setupWord(words[currentWordIndex]);
+      document.getElementById("playAudio").disabled = false;
     });
     
 }
