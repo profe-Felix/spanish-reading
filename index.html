@@ -23,7 +23,7 @@
       margin-bottom: 15px;
       display: inline-block;
       max-width: 100%;
-      height: auto; /* responsive height via aspect ratio in JS */
+      height: auto; /* responsive */
     }
     select, button {
       font-size: 18px;
@@ -61,12 +61,12 @@
   <div id="previewContainer"></div>
 
 <script>
-/* ===== Ensure allowSliderDraw is defined BEFORE first draw ===== */
+/* Ensure this exists before first draw (prevents early undefined crash) */
 if (window.allowSliderDraw === undefined) {
-  window.allowSliderDraw = true; // avoids early return in drawCanvas()
+  window.allowSliderDraw = true;
 }
 
-/* ==================== Original wiring preserved ==================== */
+/* ==================== Original wiring + responsive scaling ==================== */
 const canvas = document.getElementById("wordCanvas");
 const ctx = canvas.getContext("2d");
 
@@ -74,11 +74,6 @@ let words = [], currentWordIndex = 0;
 let sliderX = 0, isDragging = false, sliderStart, sliderEnd;
 let letters = [];
 
-/* ==================== Responsive canvas (scaling only) ====================
-   - Sets CSS size to fit viewport, capped at 768px
-   - Sets backing store with devicePixelRatio for crispness
-   - Recomputes layout when size changes
-========================================================================== */
 const DPR = window.devicePixelRatio || 1;
 const BASE_W = 768, BASE_H = 432, BASE_AR = BASE_H / BASE_W;
 
@@ -87,17 +82,17 @@ function resizeCanvas() {
   const width = Math.min(window.innerWidth * 0.95, maxWidth);
   const height = Math.round(width * BASE_AR);
 
-  // CSS size (layout)
+  // CSS size
   canvas.style.width = width + "px";
   canvas.style.height = height + "px";
 
-  // Backing store (crisp text/lines)
+  // Backing store (crisp)
   canvas.width = Math.round(width * DPR);
   canvas.height = Math.round(height * DPR);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 
   if (words.length) {
-    setupWord(words[currentWordIndex]); // recompute with new measurements
+    setupWord(words[currentWordIndex]); // recompute positions
   } else {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
   }
@@ -134,22 +129,34 @@ function changeWord(direction) {
 
 /* ==================== Layout & Drawing ==================== */
 function setupWord(word) {
-  // Scale font based on current CSS width (keeps proportions on phones)
+  // Scale font based on current CSS width
   const baseFont = 80;
   const scaledFont = Math.round(baseFont * (canvas.clientWidth / 768));
-  ctx.font = `bold ${Math.max(36, Math.min(96, scaledFont))}px Andika`;
+  const fontPx = Math.max(36, Math.min(96, scaledFont));
+  ctx.font = `bold ${fontPx}px Andika`;
 
   letters = parseWord(word);
 
-  let totalWidth = letters.reduce((sum, l) => sum + ctx.measureText(l.text).width, 0);
-  let cushion = 40; 
-  sliderStart = (canvas.clientWidth - totalWidth) / 2 - cushion;
-  
-  let padding = 10;
-  let lastLetterWidth = ctx.measureText(letters[letters.length - 1].text).width;
-  sliderEnd = sliderStart + totalWidth + (padding * (letters.length - 1)) + lastLetterWidth * 0.35;
-    
-  sliderX = sliderStart; // Start with cushion before first letter
+  // --- NEW: compute per-letter pill widths with a floor for narrow glyphs ---
+  const padding = 10;
+  const em = fontPx;                             // 1em in px
+  const minPill = Math.max(18, em * 0.55);       // floor width for pills (handles 'l', 'i', etc.)
+  const innerPad = Math.max(4, Math.round(em * 0.06)); // tiny inner padding so text never touches edges
+
+  // augment each letter with glyph width (gw) and pill width (w)
+  letters.forEach(l => {
+    const gw = ctx.measureText(l.text).width;
+    l.gw = gw;
+    l.w  = Math.max(gw + innerPad * 2, minPill);
+  });
+
+  // total visual width uses pill widths, not raw glyph widths
+  const totalWidth = letters.reduce((s, l) => s + l.w, 0) + padding * (letters.length - 1);
+
+  sliderStart = (canvas.clientWidth - totalWidth) / 2;
+  sliderEnd   = sliderStart + totalWidth;
+
+  sliderX = sliderStart; // Start at left
   drawCanvas();
 }
 
@@ -177,55 +184,75 @@ function getSoundType(letter, nextLetter = "") {
 }
 
 function drawCanvas() {
-  if (!window.allowSliderDraw) return; // now defined at top
+  if (!window.allowSliderDraw) return;
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "white";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  
+
+  // Re-apply font scaling for current size
   const baseFont = 80;
   const scaledFont = Math.round(baseFont * (canvas.clientWidth / 768));
-  ctx.font = `bold ${Math.max(36, Math.min(96, scaledFont))}px Andika`;
+  const fontPx = Math.max(36, Math.min(96, scaledFont));
+  ctx.font = `bold ${fontPx}px Andika`;
   ctx.textAlign = "center";
 
-  let x = sliderStart; 
-  let padding = 10;
+  const padding = 10;
+  const pillH = Math.max(16, Math.round(fontPx * 0.25));   // pill height tied to font size
+  const textY = Math.round(fontPx * 1.25);                  // baseline for letters
+  const pillY = textY + Math.max(16, Math.round(fontPx * 0.5)); // pill row below text
+
+  // --- NEW: radius capped per pill to avoid malformed corners on narrow pills ---
+  function pillRadius(w, h) {
+    return Math.max(2, Math.min(10, h / 2, w / 2 - 1));
+  }
+
+  let x = sliderStart;
 
   letters.forEach(letter => {
-    const letterWidth = ctx.measureText(letter.text).width;
+    const letterWidth = letter.gw;   // measured in setupWord
+    const pillW = letter.w;          // min-width enforced
+
+    // Letter color based on progress
     ctx.fillStyle = (sliderX >= x + 1) ? "black" : "lightgrey";
     if (letter.text === "h" && letter.soundType === "silent") ctx.fillStyle = "#ccc";
-    ctx.fillText(letter.text, x + letterWidth / 2, 100);
 
+    // Center text within the pill width
+    ctx.fillText(letter.text, x + pillW / 2, textY);
+
+    // Pill stroke/fill
     ctx.strokeStyle = letter.soundType === "silent" ? "#aaa"
                      : letter.soundType === "stop" ? "red" : "green";
     ctx.lineWidth = 3;
     ctx.fillStyle = (sliderX >= x + 1) ? ctx.strokeStyle : "white";
-    roundRect(x, 120, letterWidth, 20, 10, true, true);
 
-    x += letterWidth + padding;
+    const r = pillRadius(pillW, pillH);
+    roundRect(x, pillY, pillW, pillH, r, true, true);
+
+    x += pillW + padding;
   });
 
   // Slider line
+  const lineY = pillY + pillH + Math.max(16, Math.round(fontPx * 0.25));
   ctx.lineCap = "round";
   ctx.strokeStyle = "#ccc";
   ctx.lineWidth = 6;
   ctx.beginPath();
-  ctx.moveTo(sliderStart, 180);
-  ctx.lineTo(sliderEnd, 180);
+  ctx.moveTo(sliderStart, lineY);
+  ctx.lineTo(sliderEnd, lineY);
   ctx.stroke();
 
   // Active segment
   ctx.strokeStyle = "#007bff";
   ctx.beginPath();
-  ctx.moveTo(sliderStart, 180);
-  ctx.lineTo(sliderX, 180);
+  ctx.moveTo(sliderStart, lineY);
+  ctx.lineTo(sliderX, lineY);
   ctx.stroke();
 
   // Thumb
   ctx.beginPath();
   ctx.fillStyle = "#007bff";
-  ctx.arc(sliderX, 180, 10, 0, Math.PI * 2);
+  ctx.arc(sliderX, lineY, 10, 0, Math.PI * 2);
   ctx.fill();
 }
 
@@ -240,14 +267,15 @@ function moveSlider(e){
   drawCanvas();
 }
 
+// Corner-safe rounded rect
 function roundRect(x, y, w, h, r, fill, stroke) {
+  r = Math.max(0, Math.min(r, w/2, h/2)); // NEW: clamp radius per rect
   ctx.beginPath();
   ctx.moveTo(x+r, y);
   ctx.arcTo(x+w, y, x+w, y+h, r);
   ctx.arcTo(x+w, y+h, x, y+h, r);
   ctx.arcTo(x, y+h, x, y, r);
   ctx.arcTo(x, y, x+w, y, r);
-  ctx.closePath();
   if (fill) ctx.fill();
   if (stroke) ctx.stroke();
 }
@@ -255,11 +283,10 @@ function roundRect(x, y, w, h, r, fill, stroke) {
 
 <script src="https://cdn.webrtc-experiment.com/RecordRTC.js"></script>
 
-<!-- Your original recording scripts (unchanged). 
-     They may re-declare allowSliderDraw with 'let'; since we set the
-     global earlier without 'let', there will be no redeclaration error. -->
+<!-- Your original recording scripts (kept) -->
 <script>
-let recorder, stream, allowSliderDraw = true;
+let recorder, stream;           // keep global allowSliderDraw set above
+window.allowSliderDraw = true;
 
 const startBtn = document.getElementById("startRecording");
 const stopBtn = document.getElementById("stopRecording");
@@ -287,12 +314,11 @@ startBtn.onclick = async () => {
   readyText.textContent = "🎬 Get ready...";
 
   setTimeout(() => {
-    let recordingStartedAt = Date.now();
     recorder.startRecording();
     readyText.textContent = "";
-    allowSliderDraw = false;
+    window.allowSliderDraw = false;
     setTimeout(() => {
-      allowSliderDraw = true;
+      window.allowSliderDraw = true;
       drawCanvas();
     }, 200);
   }, 600);
@@ -316,7 +342,7 @@ stopBtn.onclick = () => {
 </script>
 
 <script>
-let recorder2, stream2, allowSliderDraw2 = true;
+let recorder2, stream2;         // keep global allowSliderDraw set above
 
 const startBtn2 = document.getElementById("startRecording");
 const stopBtn2 = document.getElementById("stopRecording");
@@ -341,12 +367,11 @@ startBtn2.onclick = async () => {
   readyText.textContent = "🎬 Get ready...";
 
   setTimeout(() => {
-    let recordingStartedAt = Date.now();
     recorder2.startRecording();
     readyText.textContent = "";
-    allowSliderDraw = false;
+    window.allowSliderDraw = false;
     setTimeout(() => {
-      allowSliderDraw = true;
+      window.allowSliderDraw = true;
       drawCanvas();
     }, 200);
   }, 600);
