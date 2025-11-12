@@ -37,12 +37,12 @@
   <h2>Spanish Reading Game</h2>
 
   <select id="wordListSelect">
-    <option value="" selected disabled>Select a list</option>
-    <option value="cv">CV</option>
-    <option value="cvc">CVC</option>
-    <option value="cvcv">CVCV</option>
-    <option value="inversas">Inversas</option>
-    <option value="trabadas">Trabadas</option>
+    <option value="" selected disabled>Selecciona una lista</option>
+    <option value="1. sílabas">1. sílabas</option>
+    <option value="2. palabras">2. palabras</option>
+    <option value="cvc">cvc</option>
+    <option value="inversas">inversas</option>
+    <option value="trabadas">trabadas</option>
   </select>
 
   <div id="controls">
@@ -115,16 +115,24 @@ playBtn.addEventListener("click", () => {
 });
 
 async function loadWordList() {
-  const listName = document.getElementById("wordListSelect").value;
-  const response = await fetch(`wordlists/${listName}.txt`);
-  const data = await response.text();
-  words = data.trim().split("\n").map(w => w.trim()).sort(() => Math.random() - 0.5);
-  currentWordIndex = 0;
+  const listName = document.getElementById("wordListSelect").value; // e.g., "1. sílabas"
+  const url = `wordlists/${encodeURIComponent(listName)}.txt`;      // encode spaces/accents
 
-  document.fonts.ready.then(() => {
-    setupWord(words[currentWordIndex]);
-    playBtn.disabled = false;
-  });
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`No encontrado: ${url}`);
+    const data = await response.text();
+    words = data.trim().split("\n").map(w => w.trim()).sort(() => Math.random() - 0.5);
+    currentWordIndex = 0;
+
+    document.fonts.ready.then(() => {
+      setupWord(words[currentWordIndex]);
+      playBtn.disabled = false;
+    });
+  } catch (err) {
+    console.warn(err);
+    alert(`No pude cargar "${url}". Verifica el nombre y las mayúsculas/minúsculas en GitHub Pages.`);
+  }
 }
 
 function changeWord(direction) {
