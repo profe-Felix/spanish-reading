@@ -46,7 +46,7 @@
   </select>
 
   <div id="controls">
-    <!-- NEW: audio button -->
+    <!-- Play audio -->
     <button id="playAudio" disabled>🔊 Play Audio</button>
     <button id="prevWord">⟵ Prev</button>
     <button id="nextWord">Next ⟶</button>
@@ -63,12 +63,12 @@
   <div id="previewContainer"></div>
 
 <script>
-/* Ensure this exists before first draw (prevents early undefined crash) */
+/* Ensure this exists before first draw */
 if (window.allowSliderDraw === undefined) {
   window.allowSliderDraw = true;
 }
 
-/* ==================== Original wiring + responsive scaling ==================== */
+/* ==================== Canvas + responsive scaling ==================== */
 const canvas = document.getElementById("wordCanvas");
 const ctx = canvas.getContext("2d");
 
@@ -84,17 +84,15 @@ function resizeCanvas() {
   const width = Math.min(window.innerWidth * 0.95, maxWidth);
   const height = Math.round(width * BASE_AR);
 
-  // CSS size
   canvas.style.width = width + "px";
   canvas.style.height = height + "px";
 
-  // Backing store (crisp)
   canvas.width = Math.round(width * DPR);
   canvas.height = Math.round(height * DPR);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 
   if (words.length) {
-    setupWord(words[currentWordIndex]); // recompute positions
+    setupWord(words[currentWordIndex]);
   } else {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
   }
@@ -111,7 +109,6 @@ document.getElementById("wordListSelect").addEventListener("change", loadWordLis
 document.getElementById("nextWord").addEventListener("click", () => changeWord(1));
 document.getElementById("prevWord").addEventListener("click", () => changeWord(-1));
 
-// Play button handler
 playBtn.addEventListener("click", () => {
   if (!words.length) return;
   playWordAudio(words[currentWordIndex]);
@@ -141,7 +138,6 @@ function changeWord(direction) {
 
 /* ==================== Layout & Drawing ==================== */
 function setupWord(word) {
-  // Scale font based on current CSS width
   const baseFont = 80;
   const scaledFont = Math.round(baseFont * (canvas.clientWidth / 768));
   const fontPx = Math.max(36, Math.min(96, scaledFont));
@@ -149,10 +145,9 @@ function setupWord(word) {
 
   letters = parseWord(word);
 
-  // compute per-letter pill widths with a floor for narrow glyphs
   const padding = 10;
-  const em = fontPx;                             // 1em in px
-  const minPill = Math.max(18, em * 0.55);       // keeps 'l/i' pills decent
+  const em = fontPx;
+  const minPill = Math.max(18, em * 0.55);
   const innerPad = Math.max(4, Math.round(em * 0.06));
 
   letters.forEach(l => {
@@ -166,24 +161,24 @@ function setupWord(word) {
   sliderStart = (canvas.clientWidth - totalWidth) / 2;
   sliderEnd   = sliderStart + totalWidth;
 
-  sliderX = sliderStart; // Start at left
+  sliderX = sliderStart;
   drawCanvas();
 }
 
 function parseWord(word) {
   const digraphs = ["ch", "ll", "rr", "qu"];
-  const letters = [];
+  const out = [];
   for (let i = 0; i < word.length;) {
     let digraph = digraphs.find(d => word.startsWith(d, i));
     if (digraph) {
-      letters.push({text: digraph, soundType: getSoundType(digraph)});
+      out.push({text: digraph, soundType: getSoundType(digraph)});
       i += digraph.length;
     } else {
-      letters.push({text: word[i], soundType: getSoundType(word[i], word[i+1])});
+      out.push({text: word[i], soundType: getSoundType(word[i], word[i+1])});
       i++;
     }
   }
-  return letters;
+  return out;
 }
 
 function getSoundType(letter, nextLetter = "") {
@@ -200,7 +195,6 @@ function drawCanvas() {
   ctx.fillStyle = "white";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Re-apply font scaling for current size
   const baseFont = 80;
   const scaledFont = Math.round(baseFont * (canvas.clientWidth / 768));
   const fontPx = Math.max(36, Math.min(96, scaledFont));
@@ -208,9 +202,9 @@ function drawCanvas() {
   ctx.textAlign = "center";
 
   const padding = 10;
-  const pillH = Math.max(16, Math.round(fontPx * 0.25));   // pill height tied to font size
-  const textY = Math.round(fontPx * 1.25);                  // letters baseline
-  const pillY = textY + Math.max(16, Math.round(fontPx * 0.5)); // pills under letters
+  const pillH = Math.max(16, Math.round(fontPx * 0.25));
+  const textY = Math.round(fontPx * 1.25);
+  const pillY = textY + Math.max(16, Math.round(fontPx * 0.5));
 
   function pillRadius(w, h) {
     return Math.max(2, Math.min(10, h / 2, w / 2 - 1));
@@ -221,14 +215,11 @@ function drawCanvas() {
   letters.forEach(letter => {
     const pillW = letter.w;
 
-    // Letter color based on progress
     ctx.fillStyle = (sliderX >= x + 1) ? "black" : "lightgrey";
     if (letter.text === "h" && letter.soundType === "silent") ctx.fillStyle = "#ccc";
 
-    // Center text within the pill width
     ctx.fillText(letter.text, x + pillW / 2, textY);
 
-    // Pill stroke/fill
     ctx.strokeStyle = letter.soundType === "silent" ? "#aaa"
                      : letter.soundType === "stop" ? "red" : "green";
     ctx.lineWidth = 3;
@@ -240,7 +231,6 @@ function drawCanvas() {
     x += pillW + padding;
   });
 
-  // Slider line
   const lineY = pillY + pillH + Math.max(16, Math.round(fontPx * 0.25));
   ctx.lineCap = "round";
   ctx.strokeStyle = "#ccc";
@@ -250,14 +240,12 @@ function drawCanvas() {
   ctx.lineTo(sliderEnd, lineY);
   ctx.stroke();
 
-  // Active segment
   ctx.strokeStyle = "#007bff";
   ctx.beginPath();
   ctx.moveTo(sliderStart, lineY);
   ctx.lineTo(sliderX, lineY);
   ctx.stroke();
 
-  // Thumb
   ctx.beginPath();
   ctx.fillStyle = "#007bff";
   ctx.arc(sliderX, lineY, 10, 0, Math.PI * 2);
@@ -275,7 +263,6 @@ function moveSlider(e){
   drawCanvas();
 }
 
-// Corner-safe rounded rect
 function roundRect(x, y, w, h, r, fill, stroke) {
   r = Math.max(0, Math.min(r, w/2, h/2));
   ctx.beginPath();
@@ -288,30 +275,41 @@ function roundRect(x, y, w, h, r, fill, stroke) {
   if (stroke) ctx.stroke();
 }
 
-/* ==================== AUDIO: whole-word with fallback to first unit ==================== */
+/* ==================== AUDIO: use /audio, fallback to first syllable ==================== */
 function normalizeName(s) {
   return s
     .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // strip accents
-    .replace(/[^a-zñü]+/g, ''); // keep common spanish letters if you have them
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zñü]+/g, '');
 }
-
-function firstUnitOf(word) {
-  const units = parseWord(word);
-  return units && units.length ? units[0].text.toLowerCase() : '';
+function isVowel(ch) { return /[aeiouáéíóú]/i.test(ch); }
+function firstSyllable(word) {
+  const w = (word || "").toLowerCase();
+  if (!w) return "";
+  const digraphs = ["ch","ll","rr","qu"];
+  for (const d of digraphs) {
+    if (w.startsWith(d)) {
+      const next = w[d.length] || "";
+      if (isVowel(next)) return d + next; // e.g. "qu"+"e" => "que"
+      return d;
+    }
+  }
+  const a = w[0] || "", b = w[1] || "";
+  if (isVowel(a)) return a;             // V...
+  if (a && b && !isVowel(a) && isVowel(b)) return a + b; // CV...
+  return w.slice(0, Math.min(2, w.length));
 }
 
 function playWordAudio(word) {
   const wordNorm = normalizeName(word);
-  const unit = firstUnitOf(word);
-  const unitNorm = normalizeName(unit);
+  const syllNorm = normalizeName(firstSyllable(word));
 
-  // Adjust these paths if your files live elsewhere
+  // Look ONLY in /audio
   const candidates = [
-    `audio/words/${wordNorm}.mp3`,
-    `audio/words/${wordNorm}.wav`,
-    `audio/syll/${unitNorm}.mp3`,
-    `audio/syll/${unitNorm}.wav`,
+    `audio/${wordNorm}.mp3`,
+    `audio/${wordNorm}.wav`,
+    `audio/${syllNorm}.mp3`,
+    `audio/${syllNorm}.wav`,
   ];
 
   const btn = playBtn;
@@ -333,9 +331,7 @@ function playWordAudio(word) {
     a.onended = () => { btn.disabled = false; btn.textContent = label; };
     a.onerror = () => tryNext();
     const p = a.play();
-    if (p && typeof p.then === 'function') {
-      p.catch(() => tryNext());
-    }
+    if (p && typeof p.then === 'function') p.catch(() => tryNext());
   };
   tryNext();
 }
@@ -343,9 +339,8 @@ function playWordAudio(word) {
 
 <script src="https://cdn.webrtc-experiment.com/RecordRTC.js"></script>
 
-<!-- Your original recording scripts (kept) -->
 <script>
-let recorder, stream;           // keep global allowSliderDraw set above
+let recorder, stream;
 window.allowSliderDraw = true;
 
 const startBtn = document.getElementById("startRecording");
@@ -377,10 +372,7 @@ startBtn.onclick = async () => {
     recorder.startRecording();
     readyText.textContent = "";
     window.allowSliderDraw = false;
-    setTimeout(() => {
-      window.allowSliderDraw = true;
-      drawCanvas();
-    }, 200);
+    setTimeout(() => { window.allowSliderDraw = true; drawCanvas(); }, 200);
   }, 600);
 };
 
@@ -402,7 +394,7 @@ stopBtn.onclick = () => {
 </script>
 
 <script>
-let recorder2, stream2;         // keep global allowSliderDraw set above
+let recorder2, stream2;
 
 const startBtn2 = document.getElementById("startRecording");
 const stopBtn2 = document.getElementById("stopRecording");
@@ -430,10 +422,7 @@ startBtn2.onclick = async () => {
     recorder2.startRecording();
     readyText.textContent = "";
     window.allowSliderDraw = false;
-    setTimeout(() => {
-      window.allowSliderDraw = true;
-      drawCanvas();
-    }, 200);
+    setTimeout(() => { window.allowSliderDraw = true; drawCanvas(); }, 200);
   }, 600);
 };
 
