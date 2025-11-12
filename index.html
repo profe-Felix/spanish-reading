@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -16,24 +15,21 @@
       user-select: none;
       margin-top: 20px;
     }
-    
-canvas {
-  -webkit-user-select: none;
-  user-select: none;
-  touch-action: none;
-
-      border: 1px solid #ddd;
+    canvas {
+      -webkit-user-select: none;
+      user-select: none;
       touch-action: none;
+      border: 1px solid #ddd;
       margin-bottom: 15px;
+      /* width/height are set dynamically in JS for responsiveness */
+      display: inline-block;
     }
     select, button {
       font-size: 18px;
       padding: 5px 10px;
       margin: 5px;
     }
-    #controls {
-      margin-top: 15px;
-    }
+    #controls { margin-top: 15px; }
   </style>
 </head>
 <body>
@@ -49,13 +45,14 @@ canvas {
   </select>
 
   <div id="controls">
-  <button id="playAudio" disabled>🔊 Play Audio</button>
+    <button id="playAudio" disabled>🔊 Play Audio</button>
     <button id="prevWord">⟵ Prev</button>
     <button id="nextWord">Next ⟶</button>
   </div>
 
-  <canvas id="wordCanvas" width="768" height="432">
-  </canvas>
+  <!-- Width/height attributes remain; JS will override for responsiveness -->
+  <canvas id="wordCanvas" width="768" height="432"></canvas>
+
   <div id="recording-controls">
     <button id="startRecording">🎙 Start Recording</button>
     <button id="stopRecording" disabled>⏹ Stop Recording</button>
@@ -64,9 +61,8 @@ canvas {
   <div id="readyMessage" style="font-size: 24px; margin-top: 10px; color: #555;"></div>
   <div id="previewContainer"></div>
 
-
-
 <script>
+/* ==================== Original wiring preserved ==================== */
 const canvas = document.getElementById("wordCanvas");
 const ctx = canvas.getContext("2d");
 
@@ -78,6 +74,56 @@ document.getElementById("wordListSelect").addEventListener("change", loadWordLis
 document.getElementById("nextWord").addEventListener("click", () => changeWord(1));
 document.getElementById("prevWord").addEventListener("click", () => changeWord(-1));
 
+/* ==================== Responsive canvas (scaling only) ====================
+   - Sets CSS size to fit viewport, capped at 768px
+   - Sets backing store (canvas.width/height) with devicePixelRatio for crispness
+   - Keeps your logic intact; only recomputes layout when size changes
+========================================================================== */
+const DPR = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+const MAX_W = 768;
+const BASE_W = 768;
+const BASE_H = 432;
+const BASE_AR = BASE_H / BASE_W;   // ~0.5625
+
+function resizeCanvasForViewport() {
+  const vw = window.innerWidth;
+  const pad = 24; // small horizontal cushion
+  const displayW = Math.min(Math.max(320, vw - pad), MAX_W);
+  const displayH = Math.round(displayW * BASE_AR);
+
+  // CSS layout size (in CSS pixels)
+  canvas.style.width  = displayW + "px";
+  canvas.style.height = displayH + "px";
+
+  // Backing store size (in device pixels), then map 1 unit to 1 CSS px
+  canvas.width  = Math.round(displayW * DPR);
+  canvas.height = Math.round(displayH * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  // If a word is loaded, recompute with new size; this preserves your flow
+  if (words && words.length) {
+    setupWord(words[currentWordIndex]);
+  } else {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+}
+
+// Debounce resize with rAF
+let _rAF = null;
+function scheduleResize() {
+  if (_rAF) return;
+  _rAF = requestAnimationFrame(() => {
+    _rAF = null;
+    resizeCanvasForViewport();
+  });
+}
+window.addEventListener("resize", scheduleResize);
+window.addEventListener("orientationchange", scheduleResize);
+document.addEventListener("DOMContentLoaded", () => {
+  resizeCanvasForViewport();
+});
+
+/* ==================== Your original functions (kept) ==================== */
 async function loadWordList() {
   const listName = document.getElementById("wordListSelect").value;
   const response = await fetch(`wordlists/${listName}.txt`);
@@ -85,44 +131,51 @@ async function loadWordList() {
   words = data.trim().split("\n").map(w => w.trim()).sort(() => Math.random() - 0.5);
   currentWordIndex = 0;
   
-    document.fonts.ready.then(() => {
-      setupWord(words[currentWordIndex]);
-      document.getElementById("playAudio").disabled = false;
-    });
-    
+  document.fonts.ready.then(() => {
+    setupWord(words[currentWordIndex]);
+    document.getElementById("playAudio").disabled = false;
+  });
 }
 
 function changeWord(direction) {
   if (!words.length) return;
   currentWordIndex = (currentWordIndex + direction + words.length) % words.length;
   
-    document.fonts.ready.then(() => {
-      setupWord(words[currentWordIndex]);
-      document.getElementById("playAudio").disabled = false;
-    });
-    
+  document.fonts.ready.then(() => {
+    setupWord(words[currentWordIndex]);
+    document.getElementById("playAudio").disabled = false;
+  });
 }
 
 function setupWord(word) {
-  ctx.font = "bold 80px Andika";
+  // SCALE: derive font size from current canvas display width
+  const displayW = canvas.clientWidth || BASE_W;
+  const scaled = Math.round(80 * (displayW / BASE_W)); // base 80px @ 768px
+  const fontPx = Math.max(36, Math.min(96, scaled));   // clamp for phones/desktop
+  ctx.font = `bold ${fontPx}px Andika`;
+
+  // Your existing logic — unchanged except it now measures using scaled font
   letters = parseWord(word);
 
   let totalWidth = letters.reduce((sum, l) => sum + ctx.measureText(l.text).width, 0);
-  let cushion = 40; sliderStart = (canvas.width - totalWidth) / 2 - cushion;
+  let cushion = 40;
+  // Use CSS pixel width for layout math (since transform maps 1 unit = 1 CSS px)
+  sliderStart = ( (canvas.clientWidth || BASE_W) - totalWidth ) / 2 - cushion;
   
-    let padding = 10;
-    let lastLetterWidth = ctx.measureText(letters[letters.length - 1].text).width;
-    sliderEnd = sliderStart + totalWidth + (padding * (letters.length - 1)) + lastLetterWidth * 0.35;
+  let padding = 10;
+  let lastLetterWidth = ctx.measureText(letters[letters.length - 1].text).width;
+  sliderEnd = sliderStart + totalWidth + (padding * (letters.length - 1)) + lastLetterWidth * 0.35;
     
   sliderX = sliderStart; // Start with cushion before first letter
   drawCanvas();
-  
-document.getElementById("playAudio").addEventListener("click", () => {
-  if (words && words.length && typeof currentWordIndex === 'number') {
-    playWordAudio(words[currentWordIndex]);
-  }
-});
+
+  // Kept exactly as you had it
+  document.getElementById("playAudio").addEventListener("click", () => {
+    if (words && words.length && typeof currentWordIndex === 'number') {
+      playWordAudio(words[currentWordIndex]);
+    }
+  });
+}
 </script>
 </body>
-
 </html>
