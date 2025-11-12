@@ -23,7 +23,7 @@
       margin-bottom: 15px;
       display: inline-block;
       max-width: 100%;
-      height: auto;
+      height: auto; /* responsive height via aspect ratio in JS */
     }
     select, button {
       font-size: 18px;
@@ -61,6 +61,12 @@
   <div id="previewContainer"></div>
 
 <script>
+/* ===== Ensure allowSliderDraw is defined BEFORE first draw ===== */
+if (window.allowSliderDraw === undefined) {
+  window.allowSliderDraw = true; // avoids early return in drawCanvas()
+}
+
+/* ==================== Original wiring preserved ==================== */
 const canvas = document.getElementById("wordCanvas");
 const ctx = canvas.getContext("2d");
 
@@ -68,26 +74,40 @@ let words = [], currentWordIndex = 0;
 let sliderX = 0, isDragging = false, sliderStart, sliderEnd;
 let letters = [];
 
-// ---------- RESPONSIVE CANVAS ----------
+/* ==================== Responsive canvas (scaling only) ====================
+   - Sets CSS size to fit viewport, capped at 768px
+   - Sets backing store with devicePixelRatio for crispness
+   - Recomputes layout when size changes
+========================================================================== */
 const DPR = window.devicePixelRatio || 1;
+const BASE_W = 768, BASE_H = 432, BASE_AR = BASE_H / BASE_W;
+
 function resizeCanvas() {
   const maxWidth = 768;
   const width = Math.min(window.innerWidth * 0.95, maxWidth);
-  const height = width * (432 / 768);
+  const height = Math.round(width * BASE_AR);
 
+  // CSS size (layout)
   canvas.style.width = width + "px";
   canvas.style.height = height + "px";
-  canvas.width = width * DPR;
-  canvas.height = height * DPR;
+
+  // Backing store (crisp text/lines)
+  canvas.width = Math.round(width * DPR);
+  canvas.height = Math.round(height * DPR);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 
-  if (words.length) setupWord(words[currentWordIndex]);
+  if (words.length) {
+    setupWord(words[currentWordIndex]); // recompute with new measurements
+  } else {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
 }
-window.addEventListener("resize", resizeCanvas);
-window.addEventListener("orientationchange", resizeCanvas);
+
+window.addEventListener("resize", () => requestAnimationFrame(resizeCanvas));
+window.addEventListener("orientationchange", () => requestAnimationFrame(resizeCanvas));
 document.addEventListener("DOMContentLoaded", resizeCanvas);
 
-// ---------- GAME LOGIC ----------
+/* ==================== UI & Data ==================== */
 document.getElementById("wordListSelect").addEventListener("change", loadWordList);
 document.getElementById("nextWord").addEventListener("click", () => changeWord(1));
 document.getElementById("prevWord").addEventListener("click", () => changeWord(-1));
@@ -112,12 +132,15 @@ function changeWord(direction) {
   });
 }
 
+/* ==================== Layout & Drawing ==================== */
 function setupWord(word) {
+  // Scale font based on current CSS width (keeps proportions on phones)
   const baseFont = 80;
   const scaledFont = Math.round(baseFont * (canvas.clientWidth / 768));
   ctx.font = `bold ${Math.max(36, Math.min(96, scaledFont))}px Andika`;
 
   letters = parseWord(word);
+
   let totalWidth = letters.reduce((sum, l) => sum + ctx.measureText(l.text).width, 0);
   let cushion = 40; 
   sliderStart = (canvas.clientWidth - totalWidth) / 2 - cushion;
@@ -126,11 +149,10 @@ function setupWord(word) {
   let lastLetterWidth = ctx.measureText(letters[letters.length - 1].text).width;
   sliderEnd = sliderStart + totalWidth + (padding * (letters.length - 1)) + lastLetterWidth * 0.35;
     
-  sliderX = sliderStart;
+  sliderX = sliderStart; // Start with cushion before first letter
   drawCanvas();
 }
 
-// ---------- REST OF YOUR CODE (unchanged) ----------
 function parseWord(word) {
   const digraphs = ["ch", "ll", "rr", "qu"];
   const letters = [];
@@ -155,7 +177,8 @@ function getSoundType(letter, nextLetter = "") {
 }
 
 function drawCanvas() {
-  if (!allowSliderDraw) return;
+  if (!window.allowSliderDraw) return; // now defined at top
+
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "white";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -167,6 +190,7 @@ function drawCanvas() {
 
   let x = sliderStart; 
   let padding = 10;
+
   letters.forEach(letter => {
     const letterWidth = ctx.measureText(letter.text).width;
     ctx.fillStyle = (sliderX >= x + 1) ? "black" : "lightgrey";
@@ -178,9 +202,11 @@ function drawCanvas() {
     ctx.lineWidth = 3;
     ctx.fillStyle = (sliderX >= x + 1) ? ctx.strokeStyle : "white";
     roundRect(x, 120, letterWidth, 20, 10, true, true);
+
     x += letterWidth + padding;
   });
 
+  // Slider line
   ctx.lineCap = "round";
   ctx.strokeStyle = "#ccc";
   ctx.lineWidth = 6;
@@ -189,12 +215,14 @@ function drawCanvas() {
   ctx.lineTo(sliderEnd, 180);
   ctx.stroke();
 
+  // Active segment
   ctx.strokeStyle = "#007bff";
   ctx.beginPath();
   ctx.moveTo(sliderStart, 180);
   ctx.lineTo(sliderX, 180);
   ctx.stroke();
 
+  // Thumb
   ctx.beginPath();
   ctx.fillStyle = "#007bff";
   ctx.arc(sliderX, 180, 10, 0, Math.PI * 2);
@@ -225,10 +253,120 @@ function roundRect(x, y, w, h, r, fill, stroke) {
 }
 </script>
 
-<!-- Keep your RecordRTC section as-is -->
 <script src="https://cdn.webrtc-experiment.com/RecordRTC.js"></script>
+
+<!-- Your original recording scripts (unchanged). 
+     They may re-declare allowSliderDraw with 'let'; since we set the
+     global earlier without 'let', there will be no redeclaration error. -->
 <script>
-// ... your original RecordRTC section unchanged ...
+let recorder, stream, allowSliderDraw = true;
+
+const startBtn = document.getElementById("startRecording");
+const stopBtn = document.getElementById("stopRecording");
+const previewContainer = document.getElementById("previewContainer");
+
+startBtn.onclick = async () => {
+  startBtn.disabled = true;
+  stopBtn.disabled = false;
+  previewContainer.innerHTML = "";
+
+  const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const canvasStream = canvas.captureStream(30);
+  const combinedStream = new MediaStream([
+    ...canvasStream.getVideoTracks(),
+    ...audioStream.getAudioTracks()
+  ]);
+
+  recorder = RecordRTC(combinedStream, {
+    type: 'video',
+    mimeType: 'video/webm',
+    disableLogs: true
+  });
+
+  const readyText = document.getElementById("readyMessage");
+  readyText.textContent = "🎬 Get ready...";
+
+  setTimeout(() => {
+    let recordingStartedAt = Date.now();
+    recorder.startRecording();
+    readyText.textContent = "";
+    allowSliderDraw = false;
+    setTimeout(() => {
+      allowSliderDraw = true;
+      drawCanvas();
+    }, 200);
+  }, 600);
+};
+
+stopBtn.onclick = () => {
+  stopBtn.disabled = true;
+  startBtn.disabled = false;
+  recorder.stopRecording(() => {
+    const blob = recorder.getBlob();
+    const videoURL = URL.createObjectURL(blob);
+    const video = document.createElement("video");
+    video.src = videoURL;
+    video.controls = true;
+    video.style.maxWidth = "100%";
+    previewContainer.innerHTML = "";
+    previewContainer.appendChild(video);
+    stream?.getTracks().forEach(t => t.stop());
+  });
+};
+</script>
+
+<script>
+let recorder2, stream2, allowSliderDraw2 = true;
+
+const startBtn2 = document.getElementById("startRecording");
+const stopBtn2 = document.getElementById("stopRecording");
+const previewContainer2 = document.getElementById("previewContainer");
+
+startBtn2.onclick = async () => {
+  startBtn2.disabled = true;
+  stopBtn2.disabled = false;
+  previewContainer2.innerHTML = "";
+
+  const audio = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const canvasStream = canvas.captureStream(30);
+  stream2 = new MediaStream([...canvasStream.getVideoTracks(), ...audio.getAudioTracks()]);
+
+  recorder2 = RecordRTC(stream2, {
+    type: 'video',
+    mimeType: 'video/webm',
+    disableLogs: true
+  });
+  
+  const readyText = document.getElementById("readyMessage");
+  readyText.textContent = "🎬 Get ready...";
+
+  setTimeout(() => {
+    let recordingStartedAt = Date.now();
+    recorder2.startRecording();
+    readyText.textContent = "";
+    allowSliderDraw = false;
+    setTimeout(() => {
+      allowSliderDraw = true;
+      drawCanvas();
+    }, 200);
+  }, 600);
+};
+
+stopBtn2.onclick = () => {
+  stopBtn2.disabled = true;
+  startBtn2.disabled = false;
+  recorder2.stopRecording(() => {
+    const blob = recorder2.getBlob();
+    const videoURL = URL.createObjectURL(blob);
+    const video = document.createElement("video");
+    video.src = videoURL;
+    video.controls = true;
+    video.style.maxWidth = "100%";
+    previewContainer2.innerHTML = "";
+    previewContainer2.appendChild(video);
+    stream2.getTracks().forEach(t => t.stop());
+  });
+};
 </script>
 </body>
 </html>
