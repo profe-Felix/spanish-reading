@@ -46,6 +46,8 @@
   </select>
 
   <div id="controls">
+    <!-- NEW: audio button -->
+    <button id="playAudio" disabled>🔊 Play Audio</button>
     <button id="prevWord">⟵ Prev</button>
     <button id="nextWord">Next ⟶</button>
   </div>
@@ -103,9 +105,17 @@ window.addEventListener("orientationchange", () => requestAnimationFrame(resizeC
 document.addEventListener("DOMContentLoaded", resizeCanvas);
 
 /* ==================== UI & Data ==================== */
+const playBtn = document.getElementById("playAudio");
+
 document.getElementById("wordListSelect").addEventListener("change", loadWordList);
 document.getElementById("nextWord").addEventListener("click", () => changeWord(1));
 document.getElementById("prevWord").addEventListener("click", () => changeWord(-1));
+
+// Play button handler
+playBtn.addEventListener("click", () => {
+  if (!words.length) return;
+  playWordAudio(words[currentWordIndex]);
+});
 
 async function loadWordList() {
   const listName = document.getElementById("wordListSelect").value;
@@ -116,6 +126,7 @@ async function loadWordList() {
 
   document.fonts.ready.then(() => {
     setupWord(words[currentWordIndex]);
+    playBtn.disabled = false;
   });
 }
 
@@ -124,6 +135,7 @@ function changeWord(direction) {
   currentWordIndex = (currentWordIndex + direction + words.length) % words.length;
   document.fonts.ready.then(() => {
     setupWord(words[currentWordIndex]);
+    playBtn.disabled = false;
   });
 }
 
@@ -137,20 +149,18 @@ function setupWord(word) {
 
   letters = parseWord(word);
 
-  // --- NEW: compute per-letter pill widths with a floor for narrow glyphs ---
+  // compute per-letter pill widths with a floor for narrow glyphs
   const padding = 10;
   const em = fontPx;                             // 1em in px
-  const minPill = Math.max(18, em * 0.55);       // floor width for pills (handles 'l', 'i', etc.)
-  const innerPad = Math.max(4, Math.round(em * 0.06)); // tiny inner padding so text never touches edges
+  const minPill = Math.max(18, em * 0.55);       // keeps 'l/i' pills decent
+  const innerPad = Math.max(4, Math.round(em * 0.06));
 
-  // augment each letter with glyph width (gw) and pill width (w)
   letters.forEach(l => {
     const gw = ctx.measureText(l.text).width;
     l.gw = gw;
     l.w  = Math.max(gw + innerPad * 2, minPill);
   });
 
-  // total visual width uses pill widths, not raw glyph widths
   const totalWidth = letters.reduce((s, l) => s + l.w, 0) + padding * (letters.length - 1);
 
   sliderStart = (canvas.clientWidth - totalWidth) / 2;
@@ -199,10 +209,9 @@ function drawCanvas() {
 
   const padding = 10;
   const pillH = Math.max(16, Math.round(fontPx * 0.25));   // pill height tied to font size
-  const textY = Math.round(fontPx * 1.25);                  // baseline for letters
-  const pillY = textY + Math.max(16, Math.round(fontPx * 0.5)); // pill row below text
+  const textY = Math.round(fontPx * 1.25);                  // letters baseline
+  const pillY = textY + Math.max(16, Math.round(fontPx * 0.5)); // pills under letters
 
-  // --- NEW: radius capped per pill to avoid malformed corners on narrow pills ---
   function pillRadius(w, h) {
     return Math.max(2, Math.min(10, h / 2, w / 2 - 1));
   }
@@ -210,8 +219,7 @@ function drawCanvas() {
   let x = sliderStart;
 
   letters.forEach(letter => {
-    const letterWidth = letter.gw;   // measured in setupWord
-    const pillW = letter.w;          // min-width enforced
+    const pillW = letter.w;
 
     // Letter color based on progress
     ctx.fillStyle = (sliderX >= x + 1) ? "black" : "lightgrey";
@@ -269,7 +277,7 @@ function moveSlider(e){
 
 // Corner-safe rounded rect
 function roundRect(x, y, w, h, r, fill, stroke) {
-  r = Math.max(0, Math.min(r, w/2, h/2)); // NEW: clamp radius per rect
+  r = Math.max(0, Math.min(r, w/2, h/2));
   ctx.beginPath();
   ctx.moveTo(x+r, y);
   ctx.arcTo(x+w, y, x+w, y+h, r);
@@ -278,6 +286,58 @@ function roundRect(x, y, w, h, r, fill, stroke) {
   ctx.arcTo(x, y, x+w, y, r);
   if (fill) ctx.fill();
   if (stroke) ctx.stroke();
+}
+
+/* ==================== AUDIO: whole-word with fallback to first unit ==================== */
+function normalizeName(s) {
+  return s
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // strip accents
+    .replace(/[^a-zñü]+/g, ''); // keep common spanish letters if you have them
+}
+
+function firstUnitOf(word) {
+  const units = parseWord(word);
+  return units && units.length ? units[0].text.toLowerCase() : '';
+}
+
+function playWordAudio(word) {
+  const wordNorm = normalizeName(word);
+  const unit = firstUnitOf(word);
+  const unitNorm = normalizeName(unit);
+
+  // Adjust these paths if your files live elsewhere
+  const candidates = [
+    `audio/words/${wordNorm}.mp3`,
+    `audio/words/${wordNorm}.wav`,
+    `audio/syll/${unitNorm}.mp3`,
+    `audio/syll/${unitNorm}.wav`,
+  ];
+
+  const btn = playBtn;
+  const label = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '🔊 Reproduciendo…';
+
+  let i = 0;
+  const tryNext = () => {
+    if (i >= candidates.length) {
+      btn.disabled = false;
+      btn.textContent = label;
+      console.warn('No audio found for:', word, candidates);
+      return;
+    }
+    const src = candidates[i++];
+    const a = new Audio(src);
+    a.playsInline = true;
+    a.onended = () => { btn.disabled = false; btn.textContent = label; };
+    a.onerror = () => tryNext();
+    const p = a.play();
+    if (p && typeof p.then === 'function') {
+      p.catch(() => tryNext());
+    }
+  };
+  tryNext();
 }
 </script>
 
